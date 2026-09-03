@@ -457,7 +457,7 @@ html,body{margin:0;padding:0;background:var(--bg);color:var(--ink);font-family:'
   border:1px solid var(--grid-strong);
   border-radius:6px;
   padding:22px 24px;
-  width:340px;
+  width:380px;
   max-width:90vw;
 }
 .modal h2{
@@ -492,6 +492,28 @@ html,body{margin:0;padding:0;background:var(--bg);color:var(--ink);font-family:'
   justify-content:flex-end;
   gap:8px;
   margin-top:18px;
+}
+
+.export-selection-list {
+  max-height: 180px;
+  overflow-y: auto;
+  border: 1px solid var(--grid-strong);
+  border-radius: 4px;
+  padding: 8px 10px;
+  background: var(--bg);
+  margin-bottom: 12px;
+}
+.export-selection-item {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  font-size: 11px;
+  margin-bottom: 6px;
+  cursor: pointer;
+}
+.export-selection-item input {
+  width: auto;
+  cursor: pointer;
 }
 
 .marker{
@@ -541,6 +563,22 @@ html,body{margin:0;padding:0;background:var(--bg);color:var(--ink);font-family:'
   background:var(--c-tender);
 }
 .marker-bible.checked{color:var(--paper);}
+
+.row-hidden-export {
+  display: none !important;
+}
+
+@media print {
+  .topbar, .legend, .footnote, .btn, .add-row, .add-row-spacer, .drag-handle, .row-delete, .modal-overlay {
+    display: none !important;
+  }
+  .app { height: auto !important; overflow: visible !important; }
+  .board-wrap { overflow: visible !important; }
+  .board { min-width: 100% !important; }
+  body { background: white !important; color: black !important; }
+  .project-row, .track-row, .person-row { background: transparent !important; color: black !important; }
+  .collapsible-group.collapsed { max-height: none !important; opacity: 1 !important; }
+}
 </style>
 </head>
 <body>
@@ -548,11 +586,11 @@ html,body{margin:0;padding:0;background:var(--bg);color:var(--ink);font-family:'
   <div class="topbar">
     <div class="title-block">
       <h1>Planning général — Jusqu'à Octobre 2028</h1>
-      <p>Astuce : cliquez sur un projet pour dérouler ou replier ses sous-phases.</p>
+      <p>Astuce : cliquez sur Exporter pour télécharger un tableau Excel ou imprimer une sélection PDF.</p>
     </div>
     <div class="actions">
       <button class="btn ghost" id="resetBtn">Réinitialiser</button>
-      <button class="btn" id="exportBtn">Exporter CSV</button>
+      <button class="btn" id="exportBtn">Exporter...</button>
       <button class="btn" id="addTeamBtn" style="background:var(--panel-2);color:var(--paper);border-color:var(--grid-strong);">+ Ajouter une équipe</button>
       <button class="btn" id="addBtn" style="background:var(--c-schematic);color:#0A1F33;border-color:var(--c-schematic);">+ Ajouter un projet</button>
     </div>
@@ -573,6 +611,38 @@ html,body{margin:0;padding:0;background:var(--bg);color:var(--ink);font-family:'
 
   <div class="footnote">
     Les données sont synchronisées en temps réel via Firebase : chaque modification apportée par un membre est immédiatement répercutée chez tous les autres utilisateurs.
+  </div>
+</div>
+
+<!-- Modal Option d'Exportation -->
+<div class="modal-overlay" id="exportModalOverlay" style="display:none;">
+  <div class="modal">
+    <h2>Exporter le planning</h2>
+    <p style="font-size:11.5px; color:var(--ink-dim); margin-top:-8px; margin-bottom:14px;">
+      Choisissez le format d'exportation souhaité.
+    </p>
+
+    <div class="field">
+      <label>1. Export Tableau Excel (.csv)</label>
+      <button class="btn" id="confirmCsvExportBtn" style="width:100%; text-align:center; background:var(--panel-2);">
+        📊 Télécharger le tableau Excel
+      </button>
+    </div>
+
+    <hr style="border:0; border-top:1px solid var(--grid); margin:16px 0;">
+
+    <div class="field">
+      <label>2. Export PDF Sélectionné</label>
+      <div style="font-size:10.5px; color:var(--ink-dim); margin-bottom:6px;">Cochez uniquement les projets à inclure dans le PDF :</div>
+      <div class="export-selection-list" id="pdfProjectList"></div>
+      <button class="btn" id="confirmPdfExportBtn" style="width:100%; text-align:center; background:var(--c-schematic); color:#0A1F33; font-weight:600;">
+        🖨️ Générer la vue PDF sélectionnée
+      </button>
+    </div>
+
+    <div class="modal-actions">
+      <button class="btn ghost" id="cancelExportBtn">Fermer</button>
+    </div>
   </div>
 </div>
 
@@ -1118,6 +1188,7 @@ function buildBoard(months){
 
     const personRow = document.createElement('div');
     personRow.className='person-row';
+    personRow.setAttribute('data-gidx', teamIndex);
     personRow.style.color = teamHex;
 
     const personNameSpan = document.createElement('span');
@@ -1151,6 +1222,7 @@ function buildBoard(months){
 
     const spacer = document.createElement('div');
     spacer.className='person-spacer';
+    spacer.setAttribute('data-gidx', teamIndex);
     trackCol.appendChild(spacer);
 
     const projectGroups = [];
@@ -1172,7 +1244,6 @@ function buildBoard(months){
       const isMulti = projGroup.projects.length > 1;
       const groupId = group.person + '_' + projGroup.baseName;
 
-      // Initialisation : au premier chargement, fermer tous les menus déroulants
       if (isFirstLoad && isMulti) {
         collapsedGroups.add(groupId);
       }
@@ -1182,6 +1253,8 @@ function buildBoard(months){
       if (isMulti) {
         const pParentRow = document.createElement('div');
         pParentRow.className = 'project-row parent-row';
+        pParentRow.setAttribute('data-gidx', teamIndex);
+        pParentRow.setAttribute('data-basename', projGroup.baseName);
         pParentRow.style.backgroundColor = currentBg;
         
         const arrow = document.createElement('span');
@@ -1217,6 +1290,8 @@ function buildBoard(months){
 
         const tParentRow = document.createElement('div');
         tParentRow.className = 'track-row';
+        tParentRow.setAttribute('data-gidx', teamIndex);
+        tParentRow.setAttribute('data-basename', projGroup.baseName);
         tParentRow.style.backgroundColor = currentBg;
 
         const gridlines = document.createElement('div');
@@ -1276,19 +1351,28 @@ function buildBoard(months){
 
       const subRowsSide = document.createElement('div');
       subRowsSide.className = 'collapsible-group' + (isMulti && isCollapsed ? ' collapsed' : '');
+      subRowsSide.setAttribute('data-gidx', teamIndex);
+      subRowsSide.setAttribute('data-basename', projGroup.baseName);
+
       const subRowsTrack = document.createElement('div');
       subRowsTrack.className = 'collapsible-group' + (isMulti && isCollapsed ? ' collapsed' : '');
+      subRowsTrack.setAttribute('data-gidx', teamIndex);
+      subRowsTrack.setAttribute('data-basename', projGroup.baseName);
 
       projGroup.projects.forEach((project, pIdx) => {
         const globalIdx = projGroup.indices[pIdx];
 
         const pRow = document.createElement('div');
         pRow.className = 'project-row' + (isMulti ? ' sub-row' : '');
+        pRow.setAttribute('data-gidx', teamIndex);
+        pRow.setAttribute('data-pidx', globalIdx);
         pRow.style.backgroundColor = currentBg;
         pRow.draggable = true;
 
         const tRow = document.createElement('div');
         tRow.className = 'track-row';
+        tRow.setAttribute('data-gidx', teamIndex);
+        tRow.setAttribute('data-pidx', globalIdx);
         tRow.style.backgroundColor = currentBg;
 
         const gridlines = document.createElement('div');
@@ -1449,7 +1533,7 @@ function buildBoard(months){
     });
   });
 
-  isFirstLoad = false; // Désactive la réinitialisation forcée après la première ouverture
+  isFirstLoad = false;
 
   const addRow = document.createElement('div');
   addRow.className='add-row';
@@ -1474,6 +1558,157 @@ function buildBoard(months){
     marker.style.height = boardEl.scrollHeight + 'px';
   }
 }
+
+// --- Modals et Exportations ---
+const exportModalOverlay = document.getElementById('exportModalOverlay');
+const pdfProjectList = document.getElementById('pdfProjectList');
+
+function openExportModal(){
+  pdfProjectList.innerHTML = '';
+  state.forEach((group, gIdx) => {
+    const groupItem = document.createElement('div');
+    groupItem.className = 'export-selection-item';
+    groupItem.innerHTML = `<input type="checkbox" checked data-type="group" data-gidx="${gIdx}"> <strong>Équipe : ${group.person}</strong>`;
+    pdfProjectList.appendChild(groupItem);
+
+    group.projects.forEach((proj, pIdx) => {
+      const projItem = document.createElement('div');
+      projItem.className = 'export-selection-item';
+      projItem.style.paddingLeft = '18px';
+      projItem.innerHTML = `<input type="checkbox" checked data-type="proj" data-gidx="${gIdx}" data-pidx="${pIdx}"> ${proj.name} - ${proj.phaseLabel}`;
+      pdfProjectList.appendChild(projItem);
+    });
+  });
+
+  pdfProjectList.addEventListener('change', (e) => {
+    const target = e.target;
+    if (target.getAttribute('data-type') === 'group') {
+      const gidx = target.getAttribute('data-gidx');
+      const projChecks = pdfProjectList.querySelectorAll(`input[data-type="proj"][data-gidx="${gidx}"]`);
+      projChecks.forEach(ch => ch.checked = target.checked);
+    }
+  });
+
+  exportModalOverlay.style.display = 'flex';
+}
+
+function closeExportModal(){ exportModalOverlay.style.display = 'none'; }
+
+document.getElementById('exportBtn').addEventListener('click', openExportModal);
+document.getElementById('cancelExportBtn').addEventListener('click', closeExportModal);
+
+// Export CSV nettoyé et compatible 100% Excel / Navigateurs
+function exportCSV(){
+  var rows = [];
+  rows.push(['sep=;']);
+  rows.push(['Niveau', 'Equipe / Responsable', 'Projet Parent', 'Sous-Phase / Libelle', 'Categorie', 'Date Debut', 'Date Fin', 'Duree (Semaines)', '3D Count', 'Statut BIBLE']);
+
+  state.forEach(function(group){
+    rows.push(['EQUIPE', group.person, '', '', '', '', '', '', '', '']);
+
+    var projectGroups = [];
+    group.projects.forEach(function(proj){
+      var baseName = proj.name.split('-')[0].trim().toUpperCase();
+      var found = projectGroups.find(function(g){ return g.baseName === baseName; });
+      if (!found) {
+        found = { baseName: baseName, projects: [] };
+        projectGroups.push(found);
+      }
+      found.projects.push(proj);
+    });
+
+    projectGroups.forEach(function(projGroup){
+      var minStart = new Date(projGroup.projects[0].start);
+      var maxEnd = new Date(projGroup.projects[0].end);
+      var total3D = 0;
+      var hasBible = false;
+
+      projGroup.projects.forEach(function(p){
+        if (p.start < minStart) minStart = new Date(p.start);
+        if (p.end > maxEnd) maxEnd = new Date(p.end);
+        var txt = (p.phaseLabel||'').toUpperCase();
+        if (/\bAPD\b/.test(txt)) total3D += (p.threeDCount ?? 1);
+        if (/\b(DCE|DDP)\b/.test(txt)) hasBible = true;
+      });
+
+      var totalWeeks = Math.round((maxEnd - minStart) / (7 * MS_DAY));
+
+      rows.push(['PROJET PARENT', group.person, projGroup.baseName, projGroup.projects.length + ' phase(s)', '', fmtDate(minStart), fmtDate(maxEnd), totalWeeks + ' sem', total3D, hasBible ? 'Oui' : 'Non']);
+
+      projGroup.projects.forEach(function(p){
+        var weeks = Math.round((p.end - p.start) / (7 * MS_DAY));
+        var ph = PHASES[p.cat] ? PHASES[p.cat].label : p.cat;
+        rows.push(['PHASE DETAILLEE', group.person, projGroup.baseName, p.name + ' [' + p.phaseLabel + ']', ph, fmtDate(p.start), fmtDate(p.end), weeks + ' sem', p.threeDCount ?? '-', p.bibleDone ? 'Valide' : (/\b(DCE|DDP)\b/.test((p.phaseLabel||'').toUpperCase()) ? 'En cours' : '-')]);
+      });
+    });
+  });
+
+  var csvString = rows.map(function(r){
+    return r.map(csvEscape).join(';');
+  }).join('\r\n');
+
+  var blob = new Blob(['\uFEFF' + csvString], { type: 'text/csv;charset=utf-8;' });
+  var fileName = 'planning_general_excel_' + new Date().toISOString().slice(0,10) + '.csv';
+
+  if (navigator.msSaveBlob) {
+    navigator.msSaveBlob(blob, fileName);
+  } else {
+    var link = document.createElement('a');
+    var url = URL.createObjectURL(blob);
+    link.href = url;
+    link.setAttribute('download', fileName);
+    document.body.appendChild(link);
+    link.click();
+    setTimeout(function(){
+      document.body.removeChild(link);
+      URL.revokeObjectURL(url);
+    }, 100);
+  }
+}
+
+document.getElementById('confirmCsvExportBtn').addEventListener('click', function(){
+  exportCSV();
+  closeExportModal();
+});
+
+// Export PDF filtré : masque les lignes décochées avant l'impression
+document.getElementById('confirmPdfExportBtn').addEventListener('click', function(){
+  var checkedProjKeys = new Set();
+  var projChecks = pdfProjectList.querySelectorAll('input[data-type="proj"]:checked');
+  projChecks.forEach(function(ch){
+    var gidx = ch.getAttribute('data-gidx');
+    var pidx = ch.getAttribute('data-pidx');
+    checkedProjKeys.add(gidx + '_' + pidx);
+  });
+
+  var allSubRowsSide = sideCol.querySelectorAll('.project-row[data-pidx]');
+  var allSubRowsTrack = trackCol.querySelectorAll('.track-row[data-pidx]');
+
+  allSubRowsSide.forEach(function(row){
+    var gidx = row.getAttribute('data-gidx');
+    var pidx = row.getAttribute('data-pidx');
+    if (!checkedProjKeys.has(gidx + '_' + pidx)) {
+      row.classList.add('row-hidden-export');
+    }
+  });
+
+  allSubRowsTrack.forEach(function(row){
+    var gidx = row.getAttribute('data-gidx');
+    var pidx = row.getAttribute('data-pidx');
+    if (!checkedProjKeys.has(gidx + '_' + pidx)) {
+      row.classList.add('row-hidden-export');
+    }
+  });
+
+  closeExportModal();
+
+  window.print();
+
+  setTimeout(function(){
+    var hiddenRows = document.querySelectorAll('.row-hidden-export');
+    hiddenRows.forEach(function(row){ row.classList.remove('row-hidden-export'); });
+  }, 1000);
+});
 
 const modalOverlay = document.getElementById('modalOverlay');
 const modalTitle = document.getElementById('modalTitle');
@@ -1605,32 +1840,13 @@ document.getElementById('confirmTeamBtn').addEventListener('click', ()=>{
 });
 
 function csvEscape(s){
-  if(s.includes(',') || s.includes('"') || s.includes('\n')){
+  if(!s) return '""';
+  if(s.includes(';') || s.includes('"') || s.includes('\n')){
     return '"' + s.replace(/"/g,'""') + '"';
   }
   return s;
 }
 
-function exportCSV(){
-  const rows = [['Responsable','Projet','Phase','Début','Fin']];
-  state.forEach(group=>{
-    group.projects.forEach(p=>{
-      rows.push([group.person, p.name, p.phaseLabel, fmtDate(p.start), fmtDate(p.end)]);
-    });
-  });
-  const csv = rows.map(r=>r.map(csvEscape).join(',')).join('\n');
-  const blob = new Blob(['\uFEFF'+csv], {type:'text/csv;charset=utf-8;'});
-  const url = URL.createObjectURL(blob);
-  const a = document.createElement('a');
-  a.href = url;
-  a.download = 'planning_general_2026_2028_export.csv';
-  document.body.appendChild(a);
-  a.click();
-  document.body.removeChild(a);
-  URL.revokeObjectURL(url);
-}
-
-document.getElementById('exportBtn').addEventListener('click', exportCSV);
 document.getElementById('resetBtn').addEventListener('click', ()=>{
   if(confirm("Réinitialiser toutes les données aux valeurs par défaut pour TOUTE l'équipe ?")){
     state = DEFAULT_DATA;
