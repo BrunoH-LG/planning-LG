@@ -178,25 +178,39 @@ html,body{margin:0;padding:0;background:var(--bg);color:var(--ink);font-family:'
   overflow:hidden;
   text-overflow:ellipsis;
   position:relative;
-  transition: background 0.15s, opacity 0.15s;
+  transition: all 0.25s ease-in-out;
 }
 
-.project-name-span {
-  outline: none;
-  padding: 2px 4px;
-  border-radius: 2px;
+.project-row.parent-row {
+  font-weight: 600;
   cursor: pointer;
+  user-select: none;
+}
+
+.toggle-arrow {
+  display: inline-block;
+  font-size: 9px;
+  margin-right: 6px;
+  transition: transform 0.2s ease;
+  color: var(--ink-dim);
+}
+.toggle-arrow.open {
+  transform: rotate(90deg);
+}
+
+.sub-row {
+  padding-left: 22px;
+}
+
+.collapsible-group {
   overflow: hidden;
-  text-overflow: ellipsis;
-  white-space: nowrap;
+  transition: max-height 0.3s cubic-bezier(0.4, 0, 0.2, 1), opacity 0.25s ease;
 }
-.project-name-span:hover {
-  background: rgba(255,255,255,0.08);
-}
-.project-name-span:focus {
-  background: rgba(255,255,255,0.2);
-  color: var(--paper);
-  cursor: text;
+
+.collapsible-group.collapsed {
+  max-height: 0 !important;
+  opacity: 0;
+  pointer-events: none;
 }
 
 .drag-handle {
@@ -227,7 +241,7 @@ html,body{margin:0;padding:0;background:var(--bg);color:var(--ink);font-family:'
   border-top:1px solid var(--grid);
   height:38px;
   cursor: pointer;
-  transition: background 0.15s, opacity 0.15s;
+  transition: all 0.25s ease-in-out;
 }
 
 .row-dragging {
@@ -279,6 +293,18 @@ html,body{margin:0;padding:0;background:var(--bg);color:var(--ink);font-family:'
   z-index:3;
 }
 .bar:active{cursor:grabbing;}
+
+.summary-bar {
+  position: absolute;
+  top: 13px;
+  height: 12px;
+  border-radius: 6px;
+  background: repeating-linear-gradient(45deg, rgba(255,255,255,0.15), rgba(255,255,255,0.15) 8px, transparent 8px, transparent 16px);
+  border: 1px solid rgba(255,255,255,0.3);
+  pointer-events: none;
+  z-index: 2;
+}
+
 .bar-label{
   font-size:10.5px;
   padding:0 20px 0 10px;
@@ -504,7 +530,7 @@ html,body{margin:0;padding:0;background:var(--bg);color:var(--ink);font-family:'
   <div class="topbar">
     <div class="title-block">
       <h1>Planning général — Jusqu'à Octobre 2028</h1>
-      <p>Astuce : double-cliquez sur le nom d'un projet pour le modifier, ou sur sa tuile de couleur pour rouvrir le formulaire.</p>
+      <p>Astuce : la ligne fermée affiche un rappel des marqueurs 3D et BIBLE du projet.</p>
     </div>
     <div class="actions">
       <button class="btn ghost" id="resetBtn">Réinitialiser</button>
@@ -702,6 +728,7 @@ let state = null;
 let isDragging = false;
 let draggedProjectInfo = null;
 let editingProjectTarget = null;
+const collapsedGroups = new Set();
 
 function serialize(data){
   return data.map(g=>({
@@ -812,7 +839,6 @@ function makeBar(group, project, rowEl, gridTemplate){
   });
   bar.appendChild(closeBtn);
 
-  // Double-clic sur la tuile : rouvre le formulaire de phase prérempli
   bar.addEventListener('dblclick', (e)=>{
     e.stopPropagation();
     openEditPhaseModal(group, project);
@@ -967,7 +993,6 @@ function endDrag(){
   saveState();
 }
 
-// Formulaire Phase (Création / Édition)
 const phaseModalOverlay = document.getElementById('phaseModalOverlay');
 const phaseModalTitle = document.getElementById('phaseModalTitle');
 const pPhase = document.getElementById('p-phase');
@@ -1010,7 +1035,6 @@ function openEditPhaseModal(group, project){
   populatePhaseCatSelect();
   pCat.value = project.cat || 'na';
   
-  // Calculer la durée actuelle en semaines
   const diffMs = project.end - project.start;
   const currentWeeks = Math.max(1, Math.round(diffMs / (7 * MS_DAY)));
   pWeeks.value = currentWeeks;
@@ -1035,12 +1059,10 @@ document.getElementById('confirmPhaseBtn').addEventListener('click', ()=>{
   const weeks = parseInt(pWeeks.value, 10) || 4;
 
   if (editingPhaseMode) {
-    // Mode Édition de phase
     pendingPhaseProject.phaseLabel = phaseName;
     pendingPhaseProject.cat = cat;
     pendingPhaseProject.end = new Date(pendingPhaseProject.start.getTime() + (weeks * 7 * MS_DAY));
   } else {
-    // Mode Création de phase
     const startDate = new Date(pendingStartDate);
     const endDate = new Date(startDate.getTime() + (weeks * 7 * MS_DAY));
 
@@ -1112,189 +1134,296 @@ function buildBoard(months){
     spacer.className='person-spacer';
     trackCol.appendChild(spacer);
 
-    const groupRowElements = [];
+    const projectGroups = [];
+    group.projects.forEach((proj, idx) => {
+      const baseName = proj.name.split('-')[0].trim().toUpperCase();
+      let found = projectGroups.find(g => g.baseName === baseName);
+      if (!found) {
+        found = { baseName, projects: [], indices: [] };
+        projectGroups.push(found);
+      }
+      found.projects.push(proj);
+      found.indices.push(idx);
+    });
 
-    let lastProjectName = null;
     let currentBg = bgLight;
 
-    group.projects.forEach((project, projIndex)=>{
-      const baseProjectName = project.name.split('-')[0].trim().toUpperCase();
-      
-      if (lastProjectName !== null && baseProjectName !== lastProjectName) {
-        currentBg = (currentBg === bgLight) ? bgDark : bgLight;
-      }
-      lastProjectName = baseProjectName;
+    projectGroups.forEach((projGroup) => {
+      currentBg = (currentBg === bgLight) ? bgDark : bgLight;
+      const isMulti = projGroup.projects.length > 1;
+      const groupId = group.person + '_' + projGroup.baseName;
+      const isCollapsed = collapsedGroups.has(groupId);
 
-      const pRow = document.createElement('div');
-      pRow.className = 'project-row';
-      pRow.style.backgroundColor = currentBg;
-      pRow.draggable = true;
+      // --- Ligne récapitulative parent ---
+      if (isMulti) {
+        const pParentRow = document.createElement('div');
+        pParentRow.className = 'project-row parent-row';
+        pParentRow.style.backgroundColor = currentBg;
+        
+        const arrow = document.createElement('span');
+        arrow.className = 'toggle-arrow' + (isCollapsed ? '' : ' open');
+        arrow.textContent = '▶';
+        pParentRow.appendChild(arrow);
 
-      const tRow = document.createElement('div');
-      tRow.className = 'track-row';
-      tRow.style.backgroundColor = currentBg;
+        const parentNameSpan = document.createElement('span');
+        parentNameSpan.textContent = projGroup.baseName + ' (' + projGroup.projects.length + ')';
+        pParentRow.appendChild(parentNameSpan);
 
-      const gridlines = document.createElement('div');
-      gridlines.className='gridlines';
-      gridlines.style.gridTemplateColumns = gridTemplate;
-      months.forEach(()=>{
-        const gl = document.createElement('div');
-        gl.className='gridline';
-        gridlines.appendChild(gl);
-      });
-      tRow.appendChild(gridlines);
+        let minStart = new Date(projGroup.projects[0].start);
+        let maxEnd = new Date(projGroup.projects[0].end);
+        let total3DCount = 0;
+        let has3D = false;
+        let hasBible = false;
+        let bibleDone = false;
 
-      const dragHandle = document.createElement('span');
-      dragHandle.className = 'drag-handle';
-      dragHandle.textContent = '⋮⋮';
-      dragHandle.style.color = teamHex;
-      dragHandle.title = 'Glisser pour déplacer toute la ligne du projet';
-      pRow.appendChild(dragHandle);
+        projGroup.projects.forEach(p => {
+          if (p.start < minStart) minStart = new Date(p.start);
+          if (p.end > maxEnd) maxEnd = new Date(p.end);
 
-      // Nom du projet modifiable directement en place par double-clic
-      const nameSpan = document.createElement('span');
-      nameSpan.className = 'project-name-span';
-      nameSpan.textContent = project.name;
-      nameSpan.title = 'Double-cliquer pour modifier le nom du projet';
-      
-      nameSpan.addEventListener('dblclick', (e)=>{
-        e.stopPropagation();
-        nameSpan.contentEditable = 'true';
-        nameSpan.focus();
-        document.execCommand('selectAll', false, null);
-      });
+          const txt = (p.phaseLabel||'').toUpperCase();
+          if (/\bAPD\b/.test(txt)) {
+            has3D = true;
+            total3DCount += (p.threeDCount ?? 1);
+          }
+          if (/\b(DCE|DDP)\b/.test(txt)) {
+            hasBible = true;
+            if (p.bibleDone) bibleDone = true;
+          }
+        });
 
-      nameSpan.addEventListener('blur', ()=>{
-        nameSpan.contentEditable = 'false';
-        const newVal = nameSpan.textContent.trim().toUpperCase() || project.name;
-        project.name = newVal;
-        nameSpan.textContent = newVal;
-        saveState();
-        const m = buildMonthsHeader();
-        buildBoard(m);
-      });
+        const tParentRow = document.createElement('div');
+        tParentRow.className = 'track-row';
+        tParentRow.style.backgroundColor = currentBg;
 
-      nameSpan.addEventListener('keydown', (e)=>{
-        if(e.key==='Enter'){
-          e.preventDefault();
-          nameSpan.blur();
-        }
-      });
+        const gridlines = document.createElement('div');
+        gridlines.className='gridlines';
+        gridlines.style.gridTemplateColumns = gridTemplate;
+        months.forEach(()=>{
+          const gl = document.createElement('div');
+          gl.className='gridline';
+          gridlines.appendChild(gl);
+        });
+        tParentRow.appendChild(gridlines);
 
-      pRow.appendChild(nameSpan);
+        const summaryBar = document.createElement('div');
+        summaryBar.className = 'summary-bar';
+        const s = pctFromDays(dayOffset(minStart));
+        const e = pctFromDays(dayOffset(maxEnd));
+        summaryBar.style.left = s + '%';
+        summaryBar.style.width = Math.max(e - s, 0.5) + '%';
+        summaryBar.style.borderColor = teamHex;
+        tParentRow.appendChild(summaryBar);
 
-      const delBtn = document.createElement('div');
-      delBtn.className='row-delete';
-      delBtn.textContent = '✕';
-      delBtn.title = 'Supprimer ce projet/cette phase';
-      delBtn.addEventListener('click', (e)=>{
-        e.stopPropagation();
-        if(!confirm('Supprimer "'+project.name+'" ?')) return;
-        group.projects = group.projects.filter(p=>p!==project);
-        if(group.projects.length===0){
-          state = state.filter(g=>g!==group);
-        }
-        saveState();
-      });
-      pRow.appendChild(delBtn);
-
-      // Édition au double-clic sur la zone libre de la ligne
-      pRow.addEventListener('dblclick', (e)=>{
-        if(e.target === delBtn || e.target === dragHandle || e.target === nameSpan) return;
-        openEditModal(group, project);
-      });
-
-      // Édition / Création au double-clic sur la piste (hors tuile)
-      tRow.addEventListener('dblclick', (e)=>{
-        if(e.target.closest('.bar') || e.target.closest('.marker')) return;
-        const rect = tRow.getBoundingClientRect();
-        const clickX = e.clientX - rect.left;
-        const pct = clickX / rect.width;
-        const clickedDayOffset = snapDays(Math.round(pct * totalDays));
-        const calculatedDate = dateFromOffset(clickedDayOffset);
-        openPhaseModal(group, project, calculatedDate);
-      });
-
-      groupRowElements.push({ pRow, tRow, index: projIndex, project });
-
-      const handleDragStart = (e) => {
-        draggedProjectInfo = { group, project, projIndex, targetIndex: projIndex };
-        pRow.classList.add('row-dragging');
-        tRow.classList.add('row-dragging');
-        e.dataTransfer.effectAllowed = 'move';
-        e.dataTransfer.setData('text/plain', projIndex);
-      };
-
-      const handleDragEnd = () => {
-        hideDropIndicators();
-        if (draggedProjectInfo) {
-          const { group, projIndex: sourceIndex, targetIndex } = draggedProjectInfo;
-          groupRowElements.forEach(item => {
-            item.pRow.classList.remove('row-dragging');
-            item.tRow.classList.remove('row-dragging');
-          });
-
-          if (targetIndex !== undefined && sourceIndex !== targetIndex) {
-            const [movedProject] = group.projects.splice(sourceIndex, 1);
-            group.projects.splice(targetIndex, 0, movedProject);
-            
-            saveState();
-            const m = buildMonthsHeader();
-            buildBoard(m);
+        // Si le menu est fermé, afficher le rappel des tuiles 3D et BIBLE à la fin du projet
+        if (isCollapsed) {
+          if (has3D) {
+            const m3d = document.createElement('div');
+            m3d.className = 'marker marker-3d';
+            m3d.innerHTML = '<span>3D</span><span class="marker-count">' + total3DCount + '</span>';
+            m3d.style.left = 'calc(' + e + '% + 4px)';
+            m3d.style.top = (has3D && hasBible) ? '-2px' : '6px';
+            tParentRow.appendChild(m3d);
+          }
+          if (hasBible) {
+            const mb = document.createElement('div');
+            mb.className = 'marker marker-bible' + (bibleDone ? ' checked' : '');
+            mb.innerHTML = '<span class="marker-square"></span><span>BIBLE</span>';
+            mb.style.left = 'calc(' + e + '% + 4px)';
+            mb.style.top = (has3D && hasBible) ? '14px' : '6px';
+            tParentRow.appendChild(mb);
           }
         }
-        draggedProjectInfo = null;
-      };
 
-      const handleDragOver = (e) => {
-        e.preventDefault();
-        if (!draggedProjectInfo || draggedProjectInfo.group !== group) return;
+        const toggleGroup = () => {
+          if (collapsedGroups.has(groupId)) {
+            collapsedGroups.delete(groupId);
+          } else {
+            collapsedGroups.add(groupId);
+          }
+          const m = buildMonthsHeader();
+          buildBoard(m);
+        };
 
-        const boardWrap = document.getElementById('boardWrap');
-        const boardWrapRect = boardWrap.getBoundingClientRect();
-        const pRowRect = pRow.getBoundingClientRect();
+        pParentRow.addEventListener('dblclick', toggleGroup);
+        pParentRow.addEventListener('click', toggleGroup);
+
+        sideCol.appendChild(pParentRow);
+        trackCol.appendChild(tParentRow);
+      }
+
+      // --- Conteneur des sous-lignes ---
+      const subRowsSide = document.createElement('div');
+      subRowsSide.className = 'collapsible-group' + (isMulti && isCollapsed ? ' collapsed' : '');
+      const subRowsTrack = document.createElement('div');
+      subRowsTrack.className = 'collapsible-group' + (isMulti && isCollapsed ? ' collapsed' : '');
+
+      projGroup.projects.forEach((project, pIdx) => {
+        const globalIdx = projGroup.indices[pIdx];
+
+        const pRow = document.createElement('div');
+        pRow.className = 'project-row' + (isMulti ? ' sub-row' : '');
+        pRow.style.backgroundColor = currentBg;
+        pRow.draggable = true;
+
+        const tRow = document.createElement('div');
+        tRow.className = 'track-row';
+        tRow.style.backgroundColor = currentBg;
+
+        const gridlines = document.createElement('div');
+        gridlines.className='gridlines';
+        gridlines.style.gridTemplateColumns = gridTemplate;
+        months.forEach(()=>{
+          const gl = document.createElement('div');
+          gl.className='gridline';
+          gridlines.appendChild(gl);
+        });
+        tRow.appendChild(gridlines);
+
+        const dragHandle = document.createElement('span');
+        dragHandle.className = 'drag-handle';
+        dragHandle.textContent = '⋮⋮';
+        dragHandle.style.color = teamHex;
+        dragHandle.title = 'Glisser pour déplacer toute la ligne du projet';
+        pRow.appendChild(dragHandle);
+
+        const nameSpan = document.createElement('span');
+        nameSpan.className = 'project-name-span';
+        nameSpan.textContent = project.name;
+        nameSpan.title = 'Double-cliquer pour modifier le nom du projet';
         
-        const isUpperHalf = e.clientY < (pRowRect.top + pRowRect.height / 2);
-        const relativeTop = isUpperHalf 
-          ? (pRowRect.top - boardWrapRect.top + boardWrap.scrollTop)
-          : (pRowRect.bottom - boardWrapRect.top + boardWrap.scrollTop);
+        nameSpan.addEventListener('dblclick', (e)=>{
+          e.stopPropagation();
+          nameSpan.contentEditable = 'true';
+          nameSpan.focus();
+          document.execCommand('selectAll', false, null);
+        });
 
-        let targetIdx = isUpperHalf ? projIndex : projIndex + 1;
-        if (draggedProjectInfo.projIndex < targetIdx) targetIdx--;
-        draggedProjectInfo.targetIndex = Math.max(0, Math.min(targetIdx, group.projects.length - 1));
+        nameSpan.addEventListener('blur', ()=>{
+          nameSpan.contentEditable = 'false';
+          const newVal = nameSpan.textContent.trim().toUpperCase() || project.name;
+          project.name = newVal;
+          nameSpan.textContent = newVal;
+          saveState();
+          const m = buildMonthsHeader();
+          buildBoard(m);
+        });
 
-        dropIndicatorSide.style.top = relativeTop + 'px';
-        dropIndicatorSide.style.left = '0px';
-        dropIndicatorSide.style.width = '260px';
-        dropIndicatorSide.style.display = 'block';
+        nameSpan.addEventListener('keydown', (e)=>{
+          if(e.key==='Enter'){
+            e.preventDefault();
+            nameSpan.blur();
+          }
+        });
 
-        dropIndicatorTrack.style.top = relativeTop + 'px';
-        dropIndicatorTrack.style.left = '260px';
-        dropIndicatorTrack.style.right = '0px';
-        dropIndicatorTrack.style.display = 'block';
+        pRow.appendChild(nameSpan);
 
-        e.dataTransfer.dropEffect = 'move';
-      };
+        const delBtn = document.createElement('div');
+        delBtn.className='row-delete';
+        delBtn.textContent = '✕';
+        delBtn.title = 'Supprimer ce projet/cette phase';
+        delBtn.addEventListener('click', (e)=>{
+          e.stopPropagation();
+          if(!confirm('Supprimer "'+project.name+'" ?')) return;
+          group.projects = group.projects.filter(p=>p!==project);
+          if(group.projects.length===0){
+            state = state.filter(g=>g!==group);
+          }
+          saveState();
+        });
+        pRow.appendChild(delBtn);
 
-      const handleDrop = (e) => {
-        e.preventDefault();
-        e.stopPropagation();
-      };
+        pRow.addEventListener('dblclick', (e)=>{
+          if(e.target === delBtn || e.target === dragHandle || e.target === nameSpan) return;
+          openEditModal(group, project);
+        });
 
-      pRow.addEventListener('dragstart', handleDragStart);
-      pRow.addEventListener('dragend', handleDragEnd);
-      pRow.addEventListener('dragover', handleDragOver);
-      pRow.addEventListener('drop', handleDrop);
+        tRow.addEventListener('dblclick', (e)=>{
+          if(e.target.closest('.bar') || e.target.closest('.marker')) return;
+          const rect = tRow.getBoundingClientRect();
+          const clickX = e.clientX - rect.left;
+          const pct = clickX / rect.width;
+          const clickedDayOffset = snapDays(Math.round(pct * totalDays));
+          const calculatedDate = dateFromOffset(clickedDayOffset);
+          openPhaseModal(group, project, calculatedDate);
+        });
 
-      tRow.addEventListener('dragover', handleDragOver);
-      tRow.addEventListener('drop', handleDrop);
+        const handleDragStart = (e) => {
+          draggedProjectInfo = { group, project, projIndex: globalIdx, targetIndex: globalIdx };
+          pRow.classList.add('row-dragging');
+          tRow.classList.add('row-dragging');
+          e.dataTransfer.effectAllowed = 'move';
+          e.dataTransfer.setData('text/plain', globalIdx);
+        };
 
-      sideCol.appendChild(pRow);
+        const handleDragEnd = () => {
+          hideDropIndicators();
+          if (draggedProjectInfo) {
+            const { group, projIndex: sourceIndex, targetIndex } = draggedProjectInfo;
+            if (targetIndex !== undefined && sourceIndex !== targetIndex) {
+              const [movedProject] = group.projects.splice(sourceIndex, 1);
+              group.projects.splice(targetIndex, 0, movedProject);
+              
+              saveState();
+              const m = buildMonthsHeader();
+              buildBoard(m);
+            }
+          }
+          draggedProjectInfo = null;
+        };
 
-      const {el} = makeBar(group, project, tRow, gridTemplate);
-      tRow.appendChild(el);
+        const handleDragOver = (e) => {
+          e.preventDefault();
+          if (!draggedProjectInfo || draggedProjectInfo.group !== group) return;
 
-      trackCol.appendChild(tRow);
+          const boardWrap = document.getElementById('boardWrap');
+          const boardWrapRect = boardWrap.getBoundingClientRect();
+          const pRowRect = pRow.getBoundingClientRect();
+          
+          const isUpperHalf = e.clientY < (pRowRect.top + pRowRect.height / 2);
+          const relativeTop = isUpperHalf 
+            ? (pRowRect.top - boardWrapRect.top + boardWrap.scrollTop)
+            : (pRowRect.bottom - boardWrapRect.top + boardWrap.scrollTop);
+
+          let targetIdx = isUpperHalf ? globalIdx : globalIdx + 1;
+          if (draggedProjectInfo.projIndex < targetIdx) targetIdx--;
+          draggedProjectInfo.targetIndex = Math.max(0, Math.min(targetIdx, group.projects.length - 1));
+
+          dropIndicatorSide.style.top = relativeTop + 'px';
+          dropIndicatorSide.style.left = '0px';
+          dropIndicatorSide.style.width = '260px';
+          dropIndicatorSide.style.display = 'block';
+
+          dropIndicatorTrack.style.top = relativeTop + 'px';
+          dropIndicatorTrack.style.left = '260px';
+          dropIndicatorTrack.style.right = '0px';
+          dropIndicatorTrack.style.display = 'block';
+
+          e.dataTransfer.dropEffect = 'move';
+        };
+
+        const handleDrop = (e) => {
+          e.preventDefault();
+          e.stopPropagation();
+        };
+
+        pRow.addEventListener('dragstart', handleDragStart);
+        pRow.addEventListener('dragend', handleDragEnd);
+        pRow.addEventListener('dragover', handleDragOver);
+        pRow.addEventListener('drop', handleDrop);
+
+        tRow.addEventListener('dragover', handleDragOver);
+        tRow.addEventListener('drop', handleDrop);
+
+        subRowsSide.appendChild(pRow);
+
+        const {el} = makeBar(group, project, tRow, gridTemplate);
+        tRow.appendChild(el);
+
+        subRowsTrack.appendChild(tRow);
+      });
+
+      sideCol.appendChild(subRowsSide);
+      trackCol.appendChild(subRowsTrack);
     });
   });
 
