@@ -213,6 +213,24 @@ html,body{margin:0;padding:0;background:var(--bg);color:var(--ink);font-family:'
   pointer-events: none;
 }
 
+.project-name-span {
+  outline: none;
+  padding: 2px 4px;
+  border-radius: 2px;
+  cursor: pointer;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+.project-name-span:hover {
+  background: rgba(255,255,255,0.08);
+}
+.project-name-span:focus {
+  background: rgba(255,255,255,0.2);
+  color: var(--paper);
+  cursor: text;
+}
+
 .drag-handle {
   cursor: grab;
   font-size: 13px;
@@ -530,7 +548,7 @@ html,body{margin:0;padding:0;background:var(--bg);color:var(--ink);font-family:'
   <div class="topbar">
     <div class="title-block">
       <h1>Planning général — Jusqu'à Octobre 2028</h1>
-      <p>Astuce : la ligne fermée affiche un rappel des marqueurs 3D et BIBLE du projet.</p>
+      <p>Astuce : cliquez sur un projet pour dérouler ou replier ses sous-phases.</p>
     </div>
     <div class="actions">
       <button class="btn ghost" id="resetBtn">Réinitialiser</button>
@@ -729,6 +747,7 @@ let isDragging = false;
 let draggedProjectInfo = null;
 let editingProjectTarget = null;
 const collapsedGroups = new Set();
+let isFirstLoad = true;
 
 function serialize(data){
   return data.map(g=>({
@@ -1152,9 +1171,14 @@ function buildBoard(months){
       currentBg = (currentBg === bgLight) ? bgDark : bgLight;
       const isMulti = projGroup.projects.length > 1;
       const groupId = group.person + '_' + projGroup.baseName;
+
+      // Initialisation : au premier chargement, fermer tous les menus déroulants
+      if (isFirstLoad && isMulti) {
+        collapsedGroups.add(groupId);
+      }
+
       const isCollapsed = collapsedGroups.has(groupId);
 
-      // --- Ligne récapitulative parent ---
       if (isMulti) {
         const pParentRow = document.createElement('div');
         pParentRow.className = 'project-row parent-row';
@@ -1214,7 +1238,6 @@ function buildBoard(months){
         summaryBar.style.borderColor = teamHex;
         tParentRow.appendChild(summaryBar);
 
-        // Si le menu est fermé, afficher le rappel des tuiles 3D et BIBLE à la fin du projet
         if (isCollapsed) {
           if (has3D) {
             const m3d = document.createElement('div');
@@ -1251,7 +1274,6 @@ function buildBoard(months){
         trackCol.appendChild(tParentRow);
       }
 
-      // --- Conteneur des sous-lignes ---
       const subRowsSide = document.createElement('div');
       subRowsSide.className = 'collapsible-group' + (isMulti && isCollapsed ? ' collapsed' : '');
       const subRowsTrack = document.createElement('div');
@@ -1426,6 +1448,8 @@ function buildBoard(months){
       trackCol.appendChild(subRowsTrack);
     });
   });
+
+  isFirstLoad = false; // Désactive la réinitialisation forcée après la première ouverture
 
   const addRow = document.createElement('div');
   addRow.className='add-row';
